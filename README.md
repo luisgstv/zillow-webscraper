@@ -47,4 +47,4 @@ To use this project, you will need to follow these steps:
     pip install -r requirements.txt
 ```
 
-3. Once you run the script, you will be prompted to enter the ZIP code for the location you want to scrape. The data scraping process may take between 40 to 50 minutes, depending on the number of pages and listings available.
+3. Once you run the script, you will be prompted to enter the ZIP code for the location you want to scrape. The data scraping process depends on the number of pages and listings available.

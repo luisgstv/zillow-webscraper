@@ -1,273 +1,154 @@
-import undetected_chromedriver as uc
-from selenium.webdriver import ActionChains
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.wait import WebDriverWait
-import selenium.webdriver.support.expected_conditions as EC
+import requests
+from bs4 import BeautifulSoup
+import json
 import pandas as pd
-import random
 import time
-import re
+import os
 
-def move_to_element_with_offset(actions: ActionChains, element: uc.WebElement) -> None:
-    '''Move to an element with offset with the exact size of it.'''
-    actions.move_to_element_with_offset(element, 
-        random.uniform(element.size['width']/2, -element.size['width']/2), 
-        random.uniform(element.size['height']/2, -element.size['height']/2)
-    ).perform()
+def fetch_data(url: str) -> bytes | None:
+    '''Send a HTTP request to the url using appropriate headers.'''
+    headers = {
+        "User-Agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
 
-def move_and_click(actions: ActionChains, element: uc.WebElement, random_sleep: tuple[int, int] = (0.2, 0.3)) -> None:
-    '''Move to an element with offset and clicks on it.'''
-    move_to_element_with_offset(actions, element)
-    time.sleep(random.uniform(0.2, 0.3))
-    actions.click().perform()
-    time.sleep(random.uniform(random_sleep[0], random_sleep[1]))
+    try:
+        r = requests.get(url, headers=headers)
+        return r.content
+    except requests.RequestException as e:
+        print(f'Error fetching data from {url}: {e}')
+        return None
 
-def human_like_typing(actions: ActionChains, text: str) -> None:
-    '''Write a text letter by letter in element focused by actions.'''
-    for letter in text:
-        actions.send_keys(letter).perform()
-        time.sleep(random.uniform(0.1, 0.35))
+def parse_and_scrape_data(content: bytes, data: list) -> str | None:
+    '''Parse the content of a response and extract the json to scrape the information. Returns the next url of the search if exists.'''
+    try:
+        soup = BeautifulSoup(content, 'html.parser')
+        json_response = soup.find('script', id='__NEXT_DATA__').string
+        json_response = json.loads(json_response)
 
-def wait_element(driver: uc.Chrome, n_elements: str, locator: str, wait_time: int = 4) -> uc.WebElement|list[uc.WebElement]:
-    '''Wait one or all elements and return it.'''
-    if n_elements == 'one':
-        element = WebDriverWait(driver, wait_time).until(
-            EC.presence_of_element_located(locator)
-        )
+        scrape_from_json(json_response, data)
 
-    elif n_elements == 'all':
-        element = WebDriverWait(driver, wait_time).until(
-            EC.presence_of_all_elements_located(locator)
-        )
+        next_url = json_response['props']['pageProps']['searchPageState']['cat1']['searchList']['pagination'].get('nextUrl', None)
+        return f'https://www.zillow.com{next_url}' if next_url else None
+    except Exception as e:
+        print(f'Error: {e}')
+        return None
 
-    return element
+def scrape_from_json(response: dict, data: list) -> None:
+    '''Scrape all relevant data of results within the json file from the content and append to the data list.'''
+    all_results = response['props']['pageProps']['searchPageState']['cat1']['searchResults']['listResults']
 
-def setup_driver() -> uc.Chrome:
-    '''Creates a stealth Chrome WebDriver.'''
-    options = uc.ChromeOptions()
-    user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-    options.add_argument('--headless')
-    options.add_argument(f'--user-agent={user_agent}')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    
-    driver = uc.Chrome(options=options)
-    driver.execute_cdp_cmd('Network.clearBrowserCookies', {})
-    driver.execute_cdp_cmd('Network.clearBrowserCache', {})
-    driver.execute_script('Object.defineProperty(navigator, "webdriver", {get: () => undefined})')
+    for result in all_results:
+        address_street = result['addressStreet']
+        address_city = result['addressCity']
+        address_state = result['addressState']
+        address_zipcode = result['addressZipcode']
 
-    return driver
-
-def search_location(driver: uc.Chrome, search: str) -> None:
-    '''Goes to www.zillow.com and searches some location.'''
-    driver.get('https://www.zillow.com/')
-    actions = ActionChains(driver)
-
-    search_bar = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[data-testid="search-bar-container"] input'), wait_time=10)
-    move_and_click(actions, search_bar)
-    human_like_typing(actions, search + Keys.ENTER)
-    time.sleep(random.uniform(0.7, 1.2))
-
-    for_sale_button = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[role="group"] button'), wait_time=10)
-    move_and_click(actions, for_sale_button, random_sleep=(3.5, 5))
-
-def scrape_results(driver: uc.Chrome, data: list) -> None:
-    '''Click on all results and scrape each one.'''
-    results = wait_element(driver, 'all', (By.XPATH, '//li[contains(@class, "ListItem") and not(contains(@data-test, "search-list-first-ad"))]'), wait_time=10)
-    actions = ActionChains(driver)
-
-    for i, result in enumerate(results):
-        start = time.perf_counter()
-
-        result_link = wait_element(result, 'one', (By.TAG_NAME, 'a'))
-        move_and_click(actions, result_link, random_sleep=(2, 3))
+        home_type = result['hdpData']['homeInfo']['homeType']
+        home_type = home_type.capitalize().replace('_', ' ')
         
-        # Collecting data (Two types of page layout)
-        try:
-            # Full Address
-            full_address = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[data-cy="chip-first-column-content"] h1')).text
+        beds = result.get('beds', 0)
+        baths = result.get('baths', 0)
+        area = result.get('area', 0)
 
-            # Number of Bedrooms and Bathrooms, and Area in sqft
-            bed_bath_sqft = wait_element(driver, 'all', (By.CSS_SELECTOR, 'div[data-testid="bed-bath-sqft-fact-container"]'))
-            bed_bath_sqft = [info.find_element(By.TAG_NAME, 'span').text.replace(',', '') for info in bed_bath_sqft]
-            bed, bath, sqft = [info if info.isnumeric() else 0 for info in bed_bath_sqft]
+        lat_long = result['latLong']
+        lat = lat_long.get('latitude', None)
+        long = lat_long.get('longitude', None)
 
-            # Info about the agent
-            agent_info = wait_element(driver, 'all', (By.CSS_SELECTOR, 'p[data-testid="attribution-LISTING_AGENT"] span'))
-            if len(agent_info) == 3:
-                agent_name, agent_dre, agent_phone = [info.text.replace(',', '').strip() for info in agent_info]
-            elif len(agent_info) == 2:
-                agent_name, agent_dre = [info.text.replace(',', '') for info in agent_info]
-                agent_phone = None
-            else:
-                agent_name = driver.find_element(By.CSS_SELECTOR, 'button[data-testid="listing-agent-contact-link"]').text
-                agent_dre = agent_info[0].text.replace(',', '')
-                agent_phone = None
-            agent_dre = agent_dre.split('#')[-1]
+        price = result['unformattedPrice']
 
-            # Info about the broker
-            broker_name = wait_element(driver, 'one', (By.CSS_SELECTOR, 'p[data-testid="attribution-BROKER"] span')).text
+        image = result['imgSrc']
+        url = result['detailUrl']
 
-            # Show more button
-            show_more_button = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[data-testid="facts-and-features-wrapper-footer"] button'))
+        home_photos = result.get('carouselPhotos', None)
+        if home_photos:
+            home_photos = [photo['url'] for photo in home_photos]
 
-        except Exception:
-            # Full Address
-            full_address = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div.summary-container h1')).text
-
-            # Number of Bedrooms and Bathrooms, and Area in sqft
-            bed_bath_sqft = wait_element(driver, 'all', (By.CSS_SELECTOR, 'span[data-testid="bed-bath-beyond"] strong'))
-            bed, bath, sqft = [info.text.replace('.', '') if info.text.isnumeric() else 0 for info in bed_bath_sqft]
-
-            # Info about the agent
-            agent_info = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[data-test-id="nc-listed-by-agent"]')).text
-            agent_name, agent_dre = agent_info.split(' DRE #')
-            try:
-                agent_dre, agent_phone = agent_dre.split(' ')
-            except Exception:
-                agent_phone = None
-
-            # Info about the broker
-            broker_info = wait_element(driver, 'one', (By.CSS_SELECTOR, 'div[data-test-id="nc-listed-by-broker"]')).text
-            broker_name = re.split(r'\d', broker_info)[0].strip()
-
-            # Show more button
-            show_more_button = wait_element(driver, 'one', (By.XPATH, '//div[@id="Facts-and-features"]/following-sibling::div//button'))
-
-        move_and_click(actions, show_more_button)
-
-        # Info about home
-        try:
-            # Home Type
-            home_type = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "Home type")]')).text
-            home_type = home_type.split(': ')[-1]
-            # Home Subtype
-            home_subtype = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "Property subtype")]')).text
-            home_subtype = home_subtype.split(': ')[-1]
-            if home_subtype.endswith(','):
-                home_subtype = home_subtype.replace(',', '')
-            # Year Built
-            year_built = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "Year built")]')).text
-            year_built = year_built.split(': ')[-1]
-            if not year_built.isnumeric():
-                year_built = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "Year built")]/following-sibling::span')).text
-        except Exception:
-            home_type = 'Lot'
-            home_subtype = 'Land'
-            year_built = 0
-
-        # Latitude and Longitude
-        wait_element(driver, 'one', (By.XPATH, '//*[text()="Neighborhood"]')).click()
-        time.sleep(1)
-        actions.send_keys(Keys.ARROW_DOWN * 3).perform()
-        lat, long = wait_element(driver, 'one', (By.XPATH, '//*[contains(@href, "?ll=")]')).get_attribute('href').split('?ll=')[-1].split('&')[0].split(',')
-
-        # Monthly payment
-        try:
-            est_monthly_payment = wait_element(driver, 'one', (By.XPATH, '//span[contains(@class, "PersonalizedPaymentChip")]')).text.strip()
-        except Exception:
-            try:
-                est_monthly_payment = wait_element(driver, 'one', (By.XPATH, '//div[contains(@class, "EstimatedPayment")]//span[contains(text(), "$")]')).text.strip()
-            except Exception:
-                est_monthly_payment = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "/mo") and not(contains(text(), "HOA"))]')).text.strip()
-
-        est_monthly_payment = est_monthly_payment.split('$')[-1].replace('/mo', '').replace(',', '')
-
-        # MLS
-        mls = wait_element(driver, 'one', (By.XPATH, '//span[contains(text(), "MLS#")]')).text
-        mls = mls.split(' ')[-1]
-
-        # Price
-        price = wait_element(driver, 'one', (By.CSS_SELECTOR, 'span[data-testid="price"]')).text
-        price = price.replace('$', '').replace(',', '')
-
-        # URL
-        url = driver.current_url
-
-        # Appending data and leaving the page
         result_data = [
-            full_address,
-            bed,
-            bath,
-            sqft,
+            address_street,
+            address_city,
+            address_state,
+            address_zipcode,
             home_type,
-            home_subtype,
-            year_built,
-            price,
-            agent_name,
-            agent_dre,
-            agent_phone,
-            broker_name,
-            est_monthly_payment,
+            beds,
+            baths,
+            area,
             lat,
             long,
-            mls,
-            url
+            price,
+            image,
+            url,
+            home_photos
         ]
+
         data.append(result_data)
 
-        close_button = driver.find_element(By.XPATH, '//*[@aria-label="close" and not(@data-testid)]')
-        move_and_click(actions, close_button, (2.5, 3.2))
-
-        stop = time.perf_counter()
-        print(f'Scraped result {i + 1} in {stop - start:.2f} seconds.')
-
-def go_to_next_page(driver: uc.Chrome) -> bool:
-    '''Find the next page button and check if it's disabled, if not goes to the next page.'''
-    pagination_items = driver.find_elements(By.CSS_SELECTOR, 'div.search-pagination li')
-    next_button = pagination_items[-1].find_element(By.TAG_NAME, 'a')
-    actions = ActionChains(driver)
-    if not next_button.get_attribute('disabled'):
-        move_and_click(actions, next_button, random_sleep=(3.5, 5))
-        return True
-    else:
-        return False
-
-def export_data(data: list, search: str) -> None:
+def export_data(data: list, zip_code: str) -> None:
     '''Export the data in CSV file.'''
     df = pd.DataFrame(data, columns=[
-        'Full Address',
+        'Address_street',
+        'Address_city',
+        'Address_state',
+        'Address_zipcode',
+        'Home_type',
         'Bedrooms',
         'Bathrooms',
-        'Area (sqft)',
-        'Home Type',
-        'Home Subtype',
-        'Year Built',
-        'Price',
-        'Agent Name',
-        'Agent DRE',
-        'Agent Phone',
-        'Broker Name',
-        'Monthly Payment',
+        'Area_sqft',
         'Latitude',
         'Longitude',
-        'MLS',
-        'URL'
+        'Price',
+        'Image',
+        'URL',
+        'Home_photos'
     ])
-    df.to_csv(f'{search}.csv', index=False)
+    df.to_csv(f'./output/{zip_code}.csv', index=False)
 
 def main() -> None:
-    '''Ask ZIP Code, run scraper and export the data.'''
-    driver = setup_driver()
-    zip_code = input('Type ZIP Code: ')
-    search_location(driver, zip_code)
+    '''Ask user input, run scraper and export the data.'''
+    user_input = input('Type ZIP Code(s) or txt file name: ')
 
-    start = time.perf_counter()
-
-    data = []
-    page_counter = 1
-    while True:
-        print(f'Scraping page {page_counter}')
-        scrape_results(driver, data)
-        has_next_page = go_to_next_page(driver)
-        if not has_next_page:
+    if user_input.endswith('.txt'):
+        for root, _, files in os.walk(os.getcwd()):
+            file_path = os.path.join(root, user_input) if user_input in files else None
             break
-        page_counter += 1
 
-    stop = time.perf_counter()
-    print(f'Scraped {page_counter} pages in {stop - start:.2f} seconds.')
+        if file_path: 
+            with open(file_path, 'r') as f:
+                zip_code_list = [line.strip() for line in f.readlines()]
+        else:
+            print('File not found.')
+    else:
+        zip_code_list = [zip_code.strip() for zip_code in user_input.split(',')]
+    
+    full_data = []
+    for zip_code in zip_code_list:
+        print(f'Scraping zip code: {zip_code}')
+        url = f'https://www.zillow.com/homes/{zip_code}_rb/'
+        data = []
+        page_number = 1
 
-    export_data(data, zip_code)
+        while True:
+            content = fetch_data(url)
+            url = parse_and_scrape_data(content, data)
+            print(f'Page {page_number} scraped.')
+            if not url:
+                break
+        
+            page_number += 1
+            time.sleep(5)
+        
+        print('Zip code scraped. Exporting data.')
+        export_data(data, zip_code)
+        full_data += data
+        time.sleep(15)
+    
+    print('All zip codes scraped, exporting full data.')
+    export_data(full_data, user_input.replace('.txt', '').replace(', ', '_'))
 
 if __name__ == '__main__':
     main()

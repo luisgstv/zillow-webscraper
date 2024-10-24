@@ -1,35 +1,45 @@
 # Real State Web Scraper
 
-This project is a Zillow web scraper designed to search properties by ZIP code and extract key data from each listing, exporting the information into a CSV file. The result is a detailed dataset that can be leveraged for analysis or predictions. The scraper retrieves the following information:
+This project is a Zillow web scraper designed to search properties by ZIP code(s) or via a .txt file containing ZIP codes. It extracts key data from each listing and exports the information into a CSV file. The result is a detailed dataset that can be leveraged for analysis or predictions. The scraper retrieves the following information:
 
-- Full property address;
+- Full property address (street, city, state, ZIP code);
+- Property type;
 - Number of bedrooms, bathrooms, and total square footage;
-- Property type and subtype;
-- Year the property was built;
+- Latitude and longitude;
 - Listing price;
-- Agent and broker details;
-- Estimated monthly payments;
-- Latitude and Longitude of the property;
-- MLS number and listing URL.
+- Cover image and all carousel photos;
+- Listing URL.
 
 ## Tools and Modules
 
-- **undetected-chromedriver**: Used alongside **Selenium** to scrape pages from the Zillow website, bypassing detection measures.
-- **Pandas**: Utilized to organize the scraped data into a DataFrame, which is then exported to CSV file.
-- **Time**: Measures the time taken to scrape all the pages.
-- **re**: Employed for string manipulation, such as splitting words based on digits.
+- **requests**: Used for sending HTTP requests to Zillow and retrieving the page content.
+- **BeautifulSoup**: Parses the HTML and locates necessary information within a script tag containing JSON data.
+- **json**: Loads the extracted JSON for processing and scraping relevant details.
+- **pandas**: Organizes the scraped data into a DataFrame and exports it to a CSV file.
+- **time**: Used to add delays when needed.
+- **os**: Manages file input for loading ZIP codes from text files.
 
 ## How it works
 
-1. Stealth Webdriver Initialization: The project begins by initializing a stealth WebDriver with undetected-chromedriver. It sets up a reliable user agent, disables detection features like AutomationControlled, and runs in headless mode. Additionally, it clears cookies and cache using Chrome DevTools Protocol (CDP) and hides the webdriver property from the browser’s navigator object to avoid detection.
+1. **User Input**: The script starts by prompting the user for input:
 
-2. ZIP Code Input and Page Navigation: Once the WebDriver is ready, the user is prompted to input a ZIP code, which is then used to search for properties in that location on Zillow. The script employs custom functions to wait for page elements to load, move the cursor, and click or type in a human-like manner, all powered by ActionChains to mimic realistic user behavior.
+   - A single ZIP code,
+   - Multiple ZIP codes separated by commas,
+   - Or the name of a .txt file containing ZIP codes located in the same directory or a subdirectory.
 
-3. Scraping Process: After accessing the search results, the scraper visits each property listed on the page, ensuring all content is fully loaded before extracting essential details. The scraper handles various exceptions, such as different page layouts or missing information, ensuring consistent data extraction across all listings
+2. **Scraping Process**:
 
-4. Pagination: After collecting data from the current page, the scraper checks whether more pages of results are available. If the next page button is enabled and not disabled, the scraper continues to the next page. This loop runs until all pages are processed.
+   - The script uses requests to fetch the HTML content from Zillow.
+   - BeautifulSoup then finds a specific script tag that contains all the property data in JSON format.
+   - The JSON is loaded, and the script iterates through the listings, extracting essential details like address, property type, number of bedrooms/bathrooms, price, photos, and geographical coordinates.
 
-5. Data Export: Once all listings have been scraped, the collected data is stored in a Pandas DataFrame and exported to a CSV file for further use or analysis.
+3. **Pagination**:
+
+   - The script checks within the JSON data for the next page URL. If available, it continues scraping until all pages are processed.
+
+4. **Data Export**:
+   - All collected data from each page is exported individually.
+   - Additionally, all the data from multiple ZIP codes (if provided) is concatenated and exported as a single CSV file for further use or analysis.
 
 ## How to use
 
@@ -47,4 +57,9 @@ To use this project, you will need to follow these steps:
     pip install -r requirements.txt
 ```
 
-3. Once you run the script, you will be prompted to enter the ZIP code for the location you want to scrape. The data scraping process depends on the number of pages and listings available.
+3. Run the script and enter either:
+   - A single ZIP code,
+   - Multiple ZIP codes separated by commas (e.g., `90210, 94103`),
+   - Or the name of a .txt file containing ZIP codes.
+
+The script will then begin the data scraping process. It typically takes less than 30 seconds for searches with 5 pages or fewer, depending on the number of ZIP codes provided.

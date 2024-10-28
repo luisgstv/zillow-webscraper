@@ -33,7 +33,8 @@ def parse_and_scrape_data(content: bytes, data: list) -> str | None:
 
         scrape_from_json(json_response, data)
 
-        next_url = json_response['props']['pageProps']['searchPageState']['cat1']['searchList']['pagination'].get('nextUrl', None)
+        pagination = json_response['props']['pageProps']['searchPageState']['cat1']['searchList'].get('pagination', None)
+        next_url = pagination.get('nextUrl', None) if pagination else None
         return f'https://www.zillow.com{next_url}' if next_url else None
     except Exception as e:
         print(f'Error: {e}')
@@ -43,6 +44,8 @@ def scrape_from_json(response: dict, data: list) -> None:
     '''Scrape all relevant data of results within the json file from the content and append to the data list.'''
     all_results = response['props']['pageProps']['searchPageState']['cat1']['searchResults']['listResults']
 
+    if not all_results:
+        print('All results = None', all_results)
     for result in all_results:
         address_street = result['addressStreet']
         address_city = result['addressCity']
@@ -55,6 +58,10 @@ def scrape_from_json(response: dict, data: list) -> None:
         beds = result.get('beds', 0)
         baths = result.get('baths', 0)
         area = result.get('area', 0)
+        if not area:
+            area = result['hdpData']['homeInfo'].get('lotAreaValue', 0)
+            if 'acres' in result['hdpData']['homeInfo'].get('lotAreaUnit', ''):
+                area *= 43560
 
         lat_long = result['latLong']
         lat = lat_long.get('latitude', None)
@@ -145,7 +152,8 @@ def main() -> None:
         print('Zip code scraped. Exporting data.')
         export_data(data, zip_code)
         full_data += data
-        time.sleep(15)
+        if len(zip_code_list) > 1:
+            time.sleep(15)
     
     print('All zip codes scraped, exporting full data.')
     export_data(full_data, user_input.replace('.txt', '').replace(', ', '_'))
